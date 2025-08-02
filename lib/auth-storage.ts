@@ -45,7 +45,7 @@ export class AuthStorage {
     try {
       const blob = await put(USERS_FILE, JSON.stringify(users, null, 2), {
         access: "public",
-        token: process.env.BLOB_READ_WRITE_TOKEN,
+        token: "vercel_blob_rw_5UFG312mpLZOjrgt_w4QIybQYmJk3MDGVFM0f5BDTSBXDVY",
       })
       console.log("Users saved to:", blob.url)
     } catch (error) {

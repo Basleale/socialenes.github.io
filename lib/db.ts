@@ -70,6 +70,7 @@ export class MediaDatabase {
 
         await put(`media-items/${id}.json`, JSON.stringify(fullItem), {
           access: "public",
+          token: "vercel_blob_rw_5UFG312mpLZOjrgt_w4QIybQYmJk3MDGVFM0f5BDTSBXDVY",
         })
 
         insertedItems.push(fullItem)
@@ -97,7 +98,9 @@ export class MediaDatabase {
           }
 
           // Delete the item
-          await del(`media-items/${id}.json`)
+          await del(`media-items/${id}.json`, {
+            token: "vercel_blob_rw_5UFG312mpLZOjrgt_w4QIybQYmJk3MDGVFM0f5BDTSBXDVY",
+          })
         } catch (error) {
           console.error(`Error deleting media item ${id}:`, error)
         }
@@ -127,6 +130,7 @@ export class MediaDatabase {
       // Update the item
       await put(`media-items/${mediaId}.json`, JSON.stringify(updatedItem), {
         access: "public",
+        token: "vercel_blob_rw_5UFG312mpLZOjrgt_w4QIybQYmJk3MDGVFM0f5BDTSBXDVY",
       })
 
       return updatedItem
@@ -182,6 +186,7 @@ export class UserDatabase {
 
       await put(`users/${id}.json`, JSON.stringify(user), {
         access: "public",
+        token: "vercel_blob_rw_5UFG312mpLZOjrgt_w4QIybQYmJk3MDGVFM0f5BDTSBXDVY",
       })
 
       return user
