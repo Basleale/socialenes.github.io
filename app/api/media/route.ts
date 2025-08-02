@@ -5,29 +5,22 @@ export async function GET() {
   try {
     console.log("Fetching media from Vercel Blob...")
 
-    // List all blobs from Vercel Blob storage
-    const { blobs } = await list()
+    // List blobs only from the "media/" directory
+    const { blobs } = await list({ prefix: "media/" })
 
-    const imageExtensions = ["jpg", "jpeg", "png", "gif", "webp", "svg"]
-    const videoExtensions = ["mp4", "mov", "avi", "mkv", "webm"]
-    const validExtensions = [...imageExtensions, ...videoExtensions];
-
-    const filteredBlobs = blobs.filter(blob => {
-        const extension = blob.pathname.split(".").pop()?.toLowerCase() || "";
-        return validExtensions.includes(extension);
-    });
-
-
-    console.log(`Found ${filteredBlobs.length} media blobs in storage`)
+    console.log(`Found ${blobs.length} media blobs in storage`)
 
     // Transform blob data to our media format
-    const media = filteredBlobs.map((blob) => {
+    const media = blobs.map((blob) => {
       // Extract metadata from pathname or use defaults
       const pathParts = blob.pathname.split("/")
       const fileName = pathParts[pathParts.length - 1]
       const extension = fileName.split(".").pop()?.toLowerCase() || ""
 
       // Determine type based on extension
+      const imageExtensions = ["jpg", "jpeg", "png", "gif", "webp", "svg"]
+      const videoExtensions = ["mp4", "mov", "avi", "mkv", "webm"]
+
       let type: "image" | "video" = "image"
       if (videoExtensions.includes(extension)) {
         type = "video"
