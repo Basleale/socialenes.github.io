@@ -1,7 +1,6 @@
 "use client"
 
 import type React from "react"
-
 import { useState, useEffect } from "react"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
@@ -17,6 +16,7 @@ interface Comment {
   createdAt: string
   userId: string
   userName: string
+  userProfilePicture?: string
 }
 
 interface CommentsModalProps {
@@ -36,9 +36,11 @@ export function CommentsModal({ isOpen, onClose, mediaItem, currentUser, onComme
 
   useEffect(() => {
     if (isOpen && mediaItem) {
-      fetchComments()
-      // Auto-refresh comments every 3 seconds
-      const interval = setInterval(fetchComments, 3000)
+      const fetchAndPoll = async () => {
+        await fetchComments();
+      };
+      fetchAndPoll();
+      const interval = setInterval(fetchAndPoll, 3000)
       return () => clearInterval(interval)
     }
   }, [isOpen, mediaItem])
@@ -51,7 +53,6 @@ export function CommentsModal({ isOpen, onClose, mediaItem, currentUser, onComme
       const response = await fetch(`/api/media/comments?mediaId=${encodeURIComponent(mediaItem.id)}`)
       if (response.ok) {
         const data = await response.json()
-        console.log("Fetched comments:", data.comments)
         setComments(data.comments || [])
       } else {
         console.error("Failed to fetch comments:", response.status)
@@ -75,23 +76,20 @@ export function CommentsModal({ isOpen, onClose, mediaItem, currentUser, onComme
           mediaId: mediaItem.id,
           userId: currentUser.id,
           userName: currentUser.name,
+          userProfilePicture: currentUser.profilePicture,
           content: newComment.trim(),
         }),
       })
 
       if (response.ok) {
         const data = await response.json()
-        console.log("Comment added:", data.comment)
         setNewComment("")
-        // Add the new comment to the local state immediately
         setComments((prev) => [...prev, data.comment])
         onCommentAdded()
 
-        // Show success toast that disappears quickly
         toast({
           title: "Comment added",
-          description: "Your comment has been posted successfully",
-          duration: 2000, // 2 seconds
+          duration: 2000,
         })
       } else {
         throw new Error("Failed to post comment")
@@ -128,7 +126,6 @@ export function CommentsModal({ isOpen, onClose, mediaItem, currentUser, onComme
           </DialogTitle>
         </DialogHeader>
 
-        {/* Media Preview */}
         <div className="flex items-center gap-3 p-3 bg-gray-700/50 rounded-lg mb-4">
           <div className="w-12 h-12 rounded overflow-hidden">
             {mediaItem.type === "image" ? (
@@ -147,7 +144,6 @@ export function CommentsModal({ isOpen, onClose, mediaItem, currentUser, onComme
           </div>
         </div>
 
-        {/* Comments List */}
         <ScrollArea className="flex-1 max-h-96 mb-4">
           {loading && comments.length === 0 ? (
             <div className="flex items-center justify-center py-8">
@@ -164,6 +160,7 @@ export function CommentsModal({ isOpen, onClose, mediaItem, currentUser, onComme
               {comments.map((comment) => (
                 <div key={comment.id} className="flex gap-3">
                   <Avatar className="h-8 w-8 flex-shrink-0">
+                    <AvatarImage src={comment.userProfilePicture || "/placeholder-user.jpg"} />
                     <AvatarFallback className="bg-gradient-to-r from-gray-700 via-slate-600 to-red-800 text-white text-xs">
                       {comment.userName?.charAt(0)?.toUpperCase() || "U"}
                     </AvatarFallback>
@@ -181,10 +178,9 @@ export function CommentsModal({ isOpen, onClose, mediaItem, currentUser, onComme
           )}
         </ScrollArea>
 
-        {/* Comment Input */}
         <div className="flex gap-2">
           <Avatar className="h-8 w-8 flex-shrink-0">
-            <AvatarImage src={currentUser?.profilePicture || "/placeholder.svg"} />
+            <AvatarImage src={currentUser?.profilePicture || "/placeholder-user.jpg"} />
             <AvatarFallback className="bg-gradient-to-r from-gray-700 via-slate-600 to-red-800 text-white text-xs">
               {currentUser?.name?.charAt(0)?.toUpperCase() || "U"}
             </AvatarFallback>

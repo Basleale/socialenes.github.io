@@ -13,7 +13,7 @@ export async function GET(request: NextRequest) {
     console.log("Fetching comments for mediaId:", mediaId)
     const comments = await BlobStorage.getComments(mediaId)
     console.log("Found comments:", comments.length)
-    
+
     return NextResponse.json({ comments })
   } catch (error) {
     console.error("Error fetching comments:", error)
@@ -24,22 +24,19 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { mediaId, userId, userName, content } = body
+    const { mediaId, userId, userName, userProfilePicture, content } = body
 
     console.log("Creating comment with data:", { mediaId, userId, userName, content })
 
     if (!mediaId || !mediaId.trim()) {
       return NextResponse.json({ error: "Valid Media ID required" }, { status: 400 })
     }
-
     if (!userId || !userId.trim()) {
       return NextResponse.json({ error: "Valid User ID required" }, { status: 400 })
     }
-
     if (!userName || !userName.trim()) {
       return NextResponse.json({ error: "Valid User Name required" }, { status: 400 })
     }
-
     if (!content || !content.trim()) {
       return NextResponse.json({ error: "Comment content required" }, { status: 400 })
     }
@@ -48,6 +45,7 @@ export async function POST(request: NextRequest) {
       mediaId: mediaId.trim(),
       userId: userId.trim(),
       userName: userName.trim(),
+      userProfilePicture,
       content: content.trim(),
     })
 
@@ -55,9 +53,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ comment })
   } catch (error) {
     console.error("Error creating comment:", error)
-    return NextResponse.json({ 
-      error: "Failed to create comment", 
-      details: error instanceof Error ? error.message : "Unknown error" 
+    return NextResponse.json({
+      error: "Failed to create comment",
+      details: error instanceof Error ? error.message : "Unknown error"
     }, { status: 500 })
   }
 }

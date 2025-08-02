@@ -21,7 +21,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const { content, senderId, senderName, receiverId, receiverName, type = "text" } = await request.json()
+    const { content, senderId, senderName, senderProfilePicture, receiverId, receiverName, type = "text", mediaUrl, mediaType } = await request.json()
 
     if (!senderId || !senderId.trim()) {
       return NextResponse.json({ error: "Valid Sender ID required" }, { status: 400 })
@@ -47,9 +47,12 @@ export async function POST(request: NextRequest) {
       content: content?.trim(),
       senderId: senderId.trim(),
       senderName: senderName.trim(),
+      senderProfilePicture,
       receiverId: receiverId.trim(),
       receiverName: receiverName.trim(),
       type,
+      mediaUrl,
+      mediaType,
     })
 
     return NextResponse.json({ message })

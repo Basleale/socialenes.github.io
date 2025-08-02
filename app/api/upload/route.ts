@@ -5,24 +5,23 @@ export async function POST(request: NextRequest) {
   try {
     const formData = await request.formData()
     const files = formData.getAll("files") as File[]
+    const userName = formData.get("userName") as string
 
     if (!files || files.length === 0) {
       return NextResponse.json({ error: "No files provided" }, { status: 400 })
     }
 
-    console.log(`Processing ${files.length} files for upload`)
+    console.log(`Processing ${files.length} files for upload by ${userName}`)
 
     const uploadPromises = files.map(async (file) => {
       try {
         console.log(`Uploading file: ${file.name} (${file.size} bytes)`)
 
-        // Generate a unique filename to avoid conflicts
         const timestamp = Date.now()
         const extension = file.name.split(".").pop()
         const nameWithoutExt = file.name.replace(/\.[^/.]+$/, "")
         const uniqueName = `${nameWithoutExt}-${timestamp}.${extension}`
 
-        // Upload to Vercel Blob inside a "media" folder
         const blob = await put(`media/${uniqueName}`, file, {
           access: "public",
           token: "vercel_blob_rw_5UFG312mpLZOjrgt_w4QIybQYmJk3MDGVFM0f5BDTSBXDVY",
@@ -30,7 +29,6 @@ export async function POST(request: NextRequest) {
 
         console.log(`Successfully uploaded: ${uniqueName} -> ${blob.url}`)
 
-        // Determine file type
         const imageExtensions = ["jpg", "jpeg", "png", "gif", "webp", "svg"]
         const videoExtensions = ["mp4", "mov", "avi", "mkv", "webm"]
         const ext = extension?.toLowerCase() || ""
@@ -48,7 +46,7 @@ export async function POST(request: NextRequest) {
           url: blob.url,
           size: file.size,
           uploadedAt: new Date().toISOString(),
-          uploadedBy: "User",
+          uploadedBy: userName || "User",
           tags: [],
         }
       } catch (error) {
@@ -58,7 +56,6 @@ export async function POST(request: NextRequest) {
     })
 
     const uploadedFiles = await Promise.all(uploadPromises)
-
     console.log(`Successfully uploaded ${uploadedFiles.length} files`)
 
     return NextResponse.json({

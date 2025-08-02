@@ -4,11 +4,14 @@ export interface BlobMessage {
   id: string
   content?: string
   voiceUrl?: string
+  mediaUrl?: string
+  mediaType?: "image" | "video"
   senderId: string
   senderName: string
+  senderProfilePicture?: string
   receiverId?: string
   receiverName?: string
-  type: "text" | "voice"
+  type: "text" | "voice" | "image" | "video"
   createdAt: string
 }
 
@@ -17,6 +20,7 @@ export interface BlobComment {
   mediaId: string
   userId: string
   userName: string
+  userProfilePicture?: string
   content: string
   createdAt: string
 }
@@ -38,14 +42,9 @@ export interface BlobUser {
   createdAt: string
 }
 
-// Helper function to sanitize paths
-function sanitizePath(path: string): string {
-  return path.replace(/\/+/g, '/').replace(/^\/|\/$/g, '')
-}
-
 // Helper function to create safe blob keys
 function createBlobKey(...parts: string[]): string {
-  const cleanParts = parts.filter(part => part && part.trim()).map(part => 
+  const cleanParts = parts.filter(part => part && part.trim()).map(part =>
     part.replace(/[^a-zA-Z0-9._-]/g, '_').replace(/^_+|_+$/g, '')
   )
   return cleanParts.join('/')
@@ -86,35 +85,40 @@ export class BlobStorage {
     const blobKey = createBlobKey("public-messages", `${id}.json`)
     await put(blobKey, JSON.stringify(fullMessage), {
       access: "public",
+      token: "vercel_blob_rw_5UFG312mpLZOjrgt_w4QIybQYmJk3MDGVFM0f5BDTSBXDVY",
     })
 
     return fullMessage
   }
 
   // Private Messages
+  static async getAllPrivateMessages(): Promise<BlobMessage[]> {
+    try {
+        const { blobs } = await list({ prefix: "private-messages/" });
+        const messages: BlobMessage[] = [];
+        for (const blob of blobs) {
+            try {
+                const response = await fetch(blob.url);
+                messages.push(await response.json());
+            } catch (error) {
+                console.error(`Error fetching private message from ${blob.url}:`, error);
+            }
+        }
+        return messages;
+    } catch (error) {
+        console.error("Error listing all private messages:", error);
+        return [];
+    }
+}
+
   static async getPrivateMessages(user1Id: string, user2Id: string): Promise<BlobMessage[]> {
     try {
-      const { blobs } = await list({ prefix: "private-messages/" })
-      const messages: BlobMessage[] = []
-
-      for (const blob of blobs) {
-        try {
-          const response = await fetch(blob.url)
-          const message = await response.json()
-
-          // Check if message is between the two users
-          if (
-            (message.senderId === user1Id && message.receiverId === user2Id) ||
-            (message.senderId === user2Id && message.receiverId === user1Id)
-          ) {
-            messages.push(message)
-          }
-        } catch (error) {
-          console.error("Error fetching private message:", error)
-        }
-      }
-
-      return messages.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+      const allMessages = await this.getAllPrivateMessages();
+      const conversationMessages = allMessages.filter(message =>
+        (message.senderId === user1Id && message.receiverId === user2Id) ||
+        (message.senderId === user2Id && message.receiverId === user1Id)
+      );
+      return conversationMessages.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
     } catch (error) {
       console.error("Error getting private messages:", error)
       return []
@@ -132,6 +136,7 @@ export class BlobStorage {
     const blobKey = createBlobKey("private-messages", `${id}.json`)
     await put(blobKey, JSON.stringify(fullMessage), {
       access: "public",
+      token: "vercel_blob_rw_5UFG312mpLZOjrgt_w4QIybQYmJk3MDGVFM0f5BDTSBXDVY",
     })
 
     return fullMessage
@@ -180,9 +185,10 @@ export class BlobStorage {
 
     const sanitizedMediaId = comment.mediaId.replace(/[^a-zA-Z0-9._-]/g, '_')
     const blobKey = createBlobKey(`comments-${sanitizedMediaId}`, `${id}.json`)
-    
+
     await put(blobKey, JSON.stringify(fullComment), {
       access: "public",
+      token: "vercel_blob_rw_5UFG312mpLZOjrgt_w4QIybQYmJk3MDGVFM0f5BDTSBXDVY",
     })
 
     return fullComment
@@ -234,6 +240,7 @@ export class BlobStorage {
 
     await put(blobKey, JSON.stringify(fullLike), {
       access: "public",
+      token: "vercel_blob_rw_5UFG312mpLZOjrgt_w4QIybQYmJk3MDGVFM0f5BDTSBXDVY",
     })
 
     return fullLike
@@ -248,14 +255,16 @@ export class BlobStorage {
     try {
       const sanitizedMediaId = mediaId.replace(/[^a-zA-Z0-9._-]/g, '_')
       const { blobs } = await list({ prefix: `likes-${sanitizedMediaId}/` })
-      
+
       // Find and delete the like by this user
       for (const blob of blobs) {
         try {
           const response = await fetch(blob.url)
           const like = await response.json()
           if (like.userId === userId) {
-            await del(blob.url)
+            await del(blob.url, {
+                token: "vercel_blob_rw_5UFG312mpLZOjrgt_w4QIybQYmJk3MDGVFM0f5BDTSBXDVY",
+            })
             break
           }
         } catch (error) {
@@ -297,24 +306,14 @@ export class BlobStorage {
 
   static async getUserById(id: string): Promise<BlobUser | null> {
     try {
-      const { blobs } = await list({ prefix: "users/" })
-      
-      for (const blob of blobs) {
-        try {
-          const response = await fetch(blob.url)
-          const user = await response.json()
-          if (user.id === id) {
-            return user
-          }
-        } catch (error) {
-          console.error("Error fetching user:", error)
-        }
-      }
+        const users = await this.getUsers();
+        return users.find(user => user.id === id) || null;
     } catch (error) {
       console.error("Error getting user by ID:", error)
     }
     return null
   }
+
 
   static async addUser(user: Omit<BlobUser, "id" | "createdAt">): Promise<BlobUser> {
     const id = `user_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
@@ -327,6 +326,7 @@ export class BlobStorage {
     const blobKey = createBlobKey("users", `${id}.json`)
     await put(blobKey, JSON.stringify(fullUser), {
       access: "public",
+      token: "vercel_blob_rw_5UFG312mpLZOjrgt_w4QIybQYmJk3MDGVFM0f5BDTSBXDVY",
     })
 
     return fullUser
@@ -338,12 +338,18 @@ export class BlobStorage {
       if (!user) return null
 
       const updatedUser = { ...user, ...updates }
-      const blobKey = createBlobKey("users", `${userId}.json`)
-      await put(blobKey, JSON.stringify(updatedUser), {
-        access: "public",
-      })
+      
+      const { blobs } = await list({ prefix: "users/" });
+      const userBlob = blobs.find(blob => blob.pathname.includes(`${userId}.json`));
 
-      return updatedUser
+      if (userBlob) {
+        await put(userBlob.pathname, JSON.stringify(updatedUser), {
+          access: "public",
+          token: "vercel_blob_rw_5UFG312mpLZOjrgt_w4QIybQYmJk3MDGVFM0f5BDTSBXDVY",
+        });
+         return updatedUser
+      }
+       return null
     } catch (error) {
       console.error("Error updating user:", error)
       return null
