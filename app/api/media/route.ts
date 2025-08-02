@@ -8,19 +8,26 @@ export async function GET() {
     // List all blobs from Vercel Blob storage
     const { blobs } = await list()
 
-    console.log(`Found ${blobs.length} blobs in storage`)
+    const imageExtensions = ["jpg", "jpeg", "png", "gif", "webp", "svg"]
+    const videoExtensions = ["mp4", "mov", "avi", "mkv", "webm"]
+    const validExtensions = [...imageExtensions, ...videoExtensions];
+
+    const filteredBlobs = blobs.filter(blob => {
+        const extension = blob.pathname.split(".").pop()?.toLowerCase() || "";
+        return validExtensions.includes(extension);
+    });
+
+
+    console.log(`Found ${filteredBlobs.length} media blobs in storage`)
 
     // Transform blob data to our media format
-    const media = blobs.map((blob) => {
+    const media = filteredBlobs.map((blob) => {
       // Extract metadata from pathname or use defaults
       const pathParts = blob.pathname.split("/")
       const fileName = pathParts[pathParts.length - 1]
       const extension = fileName.split(".").pop()?.toLowerCase() || ""
 
       // Determine type based on extension
-      const imageExtensions = ["jpg", "jpeg", "png", "gif", "webp", "svg"]
-      const videoExtensions = ["mp4", "mov", "avi", "mkv", "webm"]
-
       let type: "image" | "video" = "image"
       if (videoExtensions.includes(extension)) {
         type = "video"
@@ -82,12 +89,14 @@ export async function DELETE(request: Request) {
     const deletePromises = ids.map(async (blobUrl: string) => {
       try {
         console.log(`Deleting blob: ${blobUrl}`)
-        await del(blobUrl)
+        await del(blobUrl, {
+          token: "vercel_blob_rw_5UFG312mpLZOjrgt_w4QIybQYmJk3MDGVFM0f5BDTSBXDVY",
+        })
         console.log(`Successfully deleted blob: ${blobUrl}`)
         return { id: blobUrl, success: true }
       } catch (error) {
         console.error(`Failed to delete blob ${blobUrl}:`, error)
-        return { id: blobUrl, success: false, error: error.message }
+        return { id: blobUrl, success: false, error: (error as Error).message }
       }
     })
 

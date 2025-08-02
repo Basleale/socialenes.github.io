@@ -67,16 +67,15 @@ export default function DashboardPage() {
   const { media, loading, uploadFiles, mutate } = useMedia()
   const { toast } = useToast()
   const router = useRouter()
-
-  // Real-time updates every 2 seconds
+  
   useEffect(() => {
     const interval = setInterval(() => {
-      mutate()
       updateMediaStats()
-    }, 2000)
+    }, 5000) // Refresh stats every 5 seconds
 
     return () => clearInterval(interval)
-  }, [mutate])
+  }, [media, user])
+
 
   useEffect(() => {
     const currentUser = localStorage.getItem("currentUser")
@@ -96,7 +95,7 @@ export default function DashboardPage() {
   }, [media])
 
   const updateMediaStats = async () => {
-    if (!user) return
+    if (!user || media.length === 0) return
 
     const likesPromises = media.map(async (item) => {
       try {
