@@ -1,114 +1,101 @@
 "use client"
 
-import type React from "react"
 import { useState, useEffect, useRef } from "react"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { useToast } from "@/hooks/use-toast"
-import { Send, Mic, MicOff, Loader2, MessageCircle, Play, Pause } from "lucide-react"
-import type { SupabaseUser } from "@/lib/supabase"
-
-interface Message {
-  id: string
-  content?: string
-  voiceUrl?: string
-  senderId: string
-  senderName: string
-  receiverId?: string
-  receiverName?: string
-  type: "text" | "voice"
-  createdAt: string
-}
+import { Badge } from "@/components/ui/badge"
+import { supabase, type User, type Message } from "@/lib/supabase"
+import { Send, Mic, MicOff, Play, Pause, Clock } from "lucide-react"
+import { toast } from "sonner"
 
 interface ChatModalProps {
   isOpen: boolean
   onClose: () => void
-  user: SupabaseUser
-  currentUser: SupabaseUser
+  currentUser: User
+  chatUser: User
 }
 
-export function ChatModal({ isOpen, onClose, user, currentUser }: ChatModalProps) {
+export function ChatModal({ isOpen, onClose, currentUser, chatUser }: ChatModalProps) {
   const [messages, setMessages] = useState<Message[]>([])
   const [newMessage, setNewMessage] = useState("")
-  const [loading, setLoading] = useState(false)
-  const [sending, setSending] = useState(false)
   const [isRecording, setIsRecording] = useState(false)
+  const [isLoading, setIsLoading] = useState(false)
   const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null)
-  const [playingAudio, setPlayingAudio] = useState<string | null>(null)
-  const scrollAreaRef = useRef<HTMLDivElement>(null)
-  const { toast } = useToast()
+  const [audioChunks, setAudioChunks] = useState<Blob[]>([])
+  const messagesEndRef = useRef<HTMLDivElement>(null)
+  const audioRef = useRef<HTMLAudioElement>(null)
 
   useEffect(() => {
-    if (isOpen && user && currentUser) {
-      fetchMessages()
-      // Auto-refresh messages every 2 seconds
-      const interval = setInterval(fetchMessages, 2000)
-      return () => clearInterval(interval)
+    if (isOpen) {
+      loadMessages()
+      markMessagesAsRead()
     }
-  }, [isOpen, user, currentUser])
+  }, [isOpen, chatUser.id])
 
   useEffect(() => {
-    // Scroll to bottom when new messages arrive
-    if (scrollAreaRef.current) {
-      scrollAreaRef.current.scrollTop = scrollAreaRef.current.scrollHeight
-    }
+    scrollToBottom()
   }, [messages])
 
-  const fetchMessages = async () => {
-    if (!user || !currentUser) return
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
+  }
 
-    setLoading(true)
+  const loadMessages = async () => {
     try {
-      const response = await fetch(
-        `/api/chat/private?user1Id=${encodeURIComponent(currentUser.id)}&user2Id=${encodeURIComponent(user.id)}`,
-      )
-      if (response.ok) {
-        const data = await response.json()
-        setMessages(data.messages || [])
-      }
+      const { data, error } = await supabase
+        .from("messages")
+        .select("*")
+        .or(
+          `and(sender_id.eq.${currentUser.id},receiver_id.eq.${chatUser.id}),and(sender_id.eq.${chatUser.id},receiver_id.eq.${currentUser.id})`,
+        )
+        .order("created_at", { ascending: true })
+
+      if (error) throw error
+      setMessages(data || [])
     } catch (error) {
-      console.error("Error fetching messages:", error)
-    } finally {
-      setLoading(false)
+      console.error("Error loading messages:", error)
+      toast.error("Failed to load messages")
     }
   }
 
-  const handleSendMessage = async () => {
-    if (!newMessage.trim() || !user || !currentUser) return
-
-    setSending(true)
+  const markMessagesAsRead = async () => {
     try {
-      const response = await fetch("/api/chat/private", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          content: newMessage.trim(),
-          senderId: currentUser.id,
-          senderName: currentUser.user_metadata?.display_name || currentUser.email?.split("@")[0] || "User",
-          receiverId: user.id,
-          receiverName: user.user_metadata?.display_name || user.email?.split("@")[0] || "User",
-          type: "text",
-        }),
+      await supabase
+        .from("messages")
+        .update({ read: true })
+        .eq("sender_id", chatUser.id)
+        .eq("receiver_id", currentUser.id)
+        .eq("read", false)
+    } catch (error) {
+      console.error("Error marking messages as read:", error)
+    }
+  }
+
+  const sendMessage = async (content: string, type: "text" | "voice" = "text") => {
+    if (!content.trim() && type === "text") return
+
+    setIsLoading(true)
+    try {
+      const { error } = await supabase.from("messages").insert({
+        sender_id: currentUser.id,
+        receiver_id: chatUser.id,
+        content,
+        type,
+        read: false,
       })
 
-      if (response.ok) {
-        setNewMessage("")
-        fetchMessages() // Refresh messages
-      } else {
-        throw new Error("Failed to send message")
-      }
+      if (error) throw error
+
+      setNewMessage("")
+      loadMessages()
     } catch (error) {
-      toast({
-        title: "Error",
-        description: "Failed to send message",
-        variant: "destructive",
-        duration: 3000,
-      })
+      console.error("Error sending message:", error)
+      toast.error("Failed to send message")
     } finally {
-      setSending(false)
+      setIsLoading(false)
     }
   }
 
@@ -116,12 +103,18 @@ export function ChatModal({ isOpen, onClose, user, currentUser }: ChatModalProps
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
       const recorder = new MediaRecorder(stream)
-      const chunks: BlobPart[] = []
 
-      recorder.ondataavailable = (e) => chunks.push(e.data)
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          setAudioChunks((prev) => [...prev, event.data])
+        }
+      }
+
       recorder.onstop = async () => {
-        const blob = new Blob(chunks, { type: "audio/webm" })
-        await sendVoiceMessage(blob)
+        const audioBlob = new Blob(audioChunks, { type: "audio/wav" })
+        const audioUrl = URL.createObjectURL(audioBlob)
+        await sendMessage(audioUrl, "voice")
+        setAudioChunks([])
         stream.getTracks().forEach((track) => track.stop())
       }
 
@@ -129,12 +122,8 @@ export function ChatModal({ isOpen, onClose, user, currentUser }: ChatModalProps
       setMediaRecorder(recorder)
       setIsRecording(true)
     } catch (error) {
-      toast({
-        title: "Error",
-        description: "Could not access microphone",
-        variant: "destructive",
-        duration: 3000,
-      })
+      console.error("Error starting recording:", error)
+      toast.error("Failed to start recording")
     }
   }
 
@@ -146,170 +135,136 @@ export function ChatModal({ isOpen, onClose, user, currentUser }: ChatModalProps
     }
   }
 
-  const sendVoiceMessage = async (audioBlob: Blob) => {
-    if (!user || !currentUser) return
+  const formatTime = (dateString: string) => {
+    const date = new Date(dateString)
+    return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+  }
 
-    setSending(true)
-    try {
-      const formData = new FormData()
-      formData.append("audio", audioBlob)
-      formData.append("senderId", currentUser.id)
-      formData.append(
-        "senderName",
-        currentUser.user_metadata?.display_name || currentUser.email?.split("@")[0] || "User",
-      )
-      formData.append("receiverId", user.id)
-      formData.append("receiverName", user.user_metadata?.display_name || user.email?.split("@")[0] || "User")
+  const MessageBubble = ({ message }: { message: Message }) => {
+    const isOwn = message.sender_id === currentUser.id
+    const [isPlaying, setIsPlaying] = useState(false)
 
-      const response = await fetch("/api/chat/private/voice", {
-        method: "POST",
-        body: formData,
-      })
-
-      if (response.ok) {
-        fetchMessages() // Refresh messages
-      } else {
-        throw new Error("Failed to send voice message")
+    const playVoiceMessage = () => {
+      if (audioRef.current) {
+        if (isPlaying) {
+          audioRef.current.pause()
+          setIsPlaying(false)
+        } else {
+          audioRef.current.src = message.content
+          audioRef.current.play()
+          setIsPlaying(true)
+        }
       }
-    } catch (error) {
-      toast({
-        title: "Error",
-        description: "Failed to send voice message",
-        variant: "destructive",
-        duration: 3000,
-      })
-    } finally {
-      setSending(false)
-    }
-  }
-
-  const playAudio = (audioUrl: string, messageId: string) => {
-    if (playingAudio === messageId) {
-      // Stop current audio
-      setPlayingAudio(null)
-      return
     }
 
-    const audio = new Audio(audioUrl)
-    audio.onended = () => setPlayingAudio(null)
-    audio.play()
-    setPlayingAudio(messageId)
+    return (
+      <div className={`flex ${isOwn ? "justify-end" : "justify-start"} mb-4`}>
+        <div className={`max-w-[70%] ${isOwn ? "order-2" : "order-1"}`}>
+          <div className={`px-4 py-2 rounded-lg ${isOwn ? "bg-primary text-primary-foreground" : "bg-muted"}`}>
+            {message.type === "voice" ? (
+              <div className="flex items-center space-x-2">
+                <Button size="sm" variant={isOwn ? "secondary" : "default"} onClick={playVoiceMessage}>
+                  {isPlaying ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
+                </Button>
+                <span className="text-sm">Voice message</span>
+                <audio ref={audioRef} onEnded={() => setIsPlaying(false)} className="hidden" />
+              </div>
+            ) : (
+              <p className="text-sm">{message.content}</p>
+            )}
+          </div>
+          <div className={`flex items-center mt-1 space-x-1 ${isOwn ? "justify-end" : "justify-start"}`}>
+            <Clock className="h-3 w-3 text-muted-foreground" />
+            <span className="text-xs text-muted-foreground">{formatTime(message.created_at)}</span>
+            {isOwn && (
+              <Badge variant={message.read ? "default" : "secondary"} className="text-xs">
+                {message.read ? "Read" : "Sent"}
+              </Badge>
+            )}
+          </div>
+        </div>
+        <div className={`${isOwn ? "order-1 mr-2" : "order-2 ml-2"}`}>
+          <Avatar className="h-8 w-8">
+            <AvatarImage src={isOwn ? currentUser.avatar_url : chatUser.avatar_url} />
+            <AvatarFallback>
+              {isOwn
+                ? currentUser.name?.charAt(0) || currentUser.email.charAt(0)
+                : chatUser.name?.charAt(0) || chatUser.email.charAt(0)}
+            </AvatarFallback>
+          </Avatar>
+        </div>
+      </div>
+    )
   }
-
-  const handleKeyPress = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault()
-      handleSendMessage()
-    }
-  }
-
-  if (!user) return null
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="bg-gray-800 border-gray-700 text-white max-w-2xl max-h-[80vh]">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <MessageCircle className="h-5 w-5 text-blue-400" />
-            Chat with {user.user_metadata?.display_name || user.email?.split("@")[0] || "User"}
+      <DialogContent className="max-w-lg h-[600px] flex flex-col">
+        <DialogHeader className="flex-shrink-0">
+          <DialogTitle className="flex items-center space-x-3">
+            <div className="relative">
+              <Avatar className="h-10 w-10">
+                <AvatarImage src={chatUser.avatar_url || "/placeholder.svg"} />
+                <AvatarFallback>{chatUser.name?.charAt(0) || chatUser.email.charAt(0)}</AvatarFallback>
+              </Avatar>
+              {chatUser.is_online && (
+                <div className="absolute -bottom-1 -right-1 h-3 w-3 bg-green-500 border-2 border-background rounded-full" />
+              )}
+            </div>
+            <div>
+              <p className="font-medium">{chatUser.name || "Anonymous"}</p>
+              <p className="text-sm text-muted-foreground">{chatUser.is_online ? "Online" : "Offline"}</p>
+            </div>
           </DialogTitle>
         </DialogHeader>
 
-        {/* Messages */}
-        <ScrollArea className="flex-1 max-h-96 mb-4" ref={scrollAreaRef}>
-          {loading && messages.length === 0 ? (
-            <div className="flex items-center justify-center py-8">
-              <Loader2 className="h-6 w-6 animate-spin text-gray-400" />
-            </div>
-          ) : messages.length === 0 ? (
-            <div className="text-center py-8 text-gray-400">
-              <MessageCircle className="h-12 w-12 mx-auto mb-2 opacity-50" />
-              <p>No messages yet</p>
-              <p className="text-sm">Start the conversation!</p>
-            </div>
-          ) : (
-            <div className="space-y-4">
-              {messages.map((message) => (
-                <div
-                  key={message.id}
-                  className={`flex gap-3 ${message.senderId === currentUser.id ? "flex-row-reverse" : ""}`}
-                >
-                  <Avatar className="h-8 w-8 flex-shrink-0">
-                    <AvatarImage
-                      src={
-                        message.senderId === currentUser.id
-                          ? currentUser.user_metadata?.avatar_url
-                          : user.user_metadata?.avatar_url || "/placeholder.svg"
-                      }
-                    />
-                    <AvatarFallback className="bg-gradient-to-r from-gray-700 via-slate-600 to-red-800 text-white text-xs">
-                      {message.senderName?.charAt(0)?.toUpperCase() || "U"}
-                    </AvatarFallback>
-                  </Avatar>
-                  <div className={`flex-1 min-w-0 ${message.senderId === currentUser.id ? "text-right" : ""}`}>
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="font-medium text-sm text-purple-400">{message.senderName}</span>
-                      <span className="text-xs text-gray-500">{new Date(message.createdAt).toLocaleString()}</span>
-                    </div>
-                    {message.type === "text" ? (
-                      <p className="text-gray-300 text-sm break-words">{message.content}</p>
-                    ) : (
-                      <div className="flex items-center gap-2">
-                        <Button
-                          onClick={() => playAudio(message.voiceUrl!, message.id)}
-                          size="sm"
-                          variant="outline"
-                          className="border-gray-600 text-gray-300 hover:bg-gray-700"
-                        >
-                          {playingAudio === message.id ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
-                        </Button>
-                        <span className="text-gray-400 text-xs">Voice message</span>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
+        <ScrollArea className="flex-1 px-4">
+          <div className="space-y-4">
+            {messages.length > 0 ? (
+              messages.map((message) => <MessageBubble key={message.id} message={message} />)
+            ) : (
+              <div className="text-center py-8 text-muted-foreground">
+                <p>No messages yet. Start the conversation!</p>
+              </div>
+            )}
+            <div ref={messagesEndRef} />
+          </div>
         </ScrollArea>
 
-        {/* Message Input */}
-        <div className="flex gap-2">
-          <Avatar className="h-8 w-8 flex-shrink-0">
-            <AvatarImage src={currentUser?.user_metadata?.avatar_url || "/placeholder.svg"} />
-            <AvatarFallback className="bg-gradient-to-r from-gray-700 via-slate-600 to-red-800 text-white text-xs">
-              {currentUser?.user_metadata?.display_name?.charAt(0)?.toUpperCase() || "U"}
-            </AvatarFallback>
-          </Avatar>
-          <div className="flex-1 flex gap-2">
+        <div className="flex-shrink-0 p-4 border-t">
+          <div className="flex space-x-2">
             <Input
               placeholder="Type a message..."
               value={newMessage}
               onChange={(e) => setNewMessage(e.target.value)}
-              onKeyPress={handleKeyPress}
-              className="bg-gray-700/50 border-gray-600 text-white placeholder-gray-400"
-              disabled={sending || isRecording}
+              onKeyPress={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault()
+                  sendMessage(newMessage)
+                }
+              }}
+              disabled={isLoading}
+              className="flex-1"
             />
             <Button
               onClick={isRecording ? stopRecording : startRecording}
-              size="sm"
-              variant="outline"
-              className={`border-gray-600 ${
-                isRecording ? "text-red-400 border-red-400" : "text-gray-300 hover:bg-gray-700"
-              }`}
-              disabled={sending}
+              variant={isRecording ? "destructive" : "outline"}
+              size="icon"
+              disabled={isLoading}
             >
               {isRecording ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
             </Button>
-            <Button
-              onClick={handleSendMessage}
-              disabled={!newMessage.trim() || sending || isRecording}
-              size="sm"
-              className="bg-purple-600 hover:bg-purple-700"
-            >
-              {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+            <Button onClick={() => sendMessage(newMessage)} disabled={isLoading || !newMessage.trim()} size="icon">
+              <Send className="h-4 w-4" />
             </Button>
           </div>
+          {isRecording && (
+            <div className="mt-2 text-center">
+              <Badge variant="destructive" className="animate-pulse">
+                Recording... Tap to stop
+              </Badge>
+            </div>
+          )}
         </div>
       </DialogContent>
     </Dialog>

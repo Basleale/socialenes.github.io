@@ -2,317 +2,211 @@
 
 import { useState, useEffect } from "react"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { useToast } from "@/hooks/use-toast"
-import { Search, Loader2, Users, MessageCircle, Sparkles } from "lucide-react"
-import { supabase, type SupabaseUser } from "@/lib/supabase"
+import { ScrollArea } from "@/components/ui/scroll-area"
+import { supabase, type User } from "@/lib/supabase"
+import { Search, MessageCircle, Users, Clock } from "lucide-react"
+import { toast } from "sonner"
 
 interface UserSearchModalProps {
   isOpen: boolean
   onClose: () => void
-  onSelectUser: (user: SupabaseUser) => void
-  currentUser: SupabaseUser
+  onStartChat: (user: User) => void
+  currentUserId: string
 }
 
-export function UserSearchModal({ isOpen, onClose, onSelectUser, currentUser }: UserSearchModalProps) {
-  const [users, setUsers] = useState<SupabaseUser[]>([])
+export function UserSearchModal({ isOpen, onClose, onStartChat, currentUserId }: UserSearchModalProps) {
   const [searchQuery, setSearchQuery] = useState("")
-  const [loading, setLoading] = useState(false)
-  const [activeTab, setActiveTab] = useState<"discover" | "search">("discover")
-  const { toast } = useToast()
+  const [searchResults, setSearchResults] = useState<User[]>([])
+  const [recentUsers, setRecentUsers] = useState<User[]>([])
+  const [isSearching, setIsSearching] = useState(false)
+  const [activeTab, setActiveTab] = useState("discover")
 
+  // Load recently active users
   useEffect(() => {
     if (isOpen) {
-      if (activeTab === "discover") {
-        fetchDiscoverUsers()
-      } else {
-        fetchUsers()
-      }
+      loadRecentUsers()
     }
-  }, [isOpen, searchQuery, activeTab])
+  }, [isOpen])
 
-  const fetchDiscoverUsers = async () => {
-    if (!currentUser) return
+  // Search users when query changes
+  useEffect(() => {
+    if (searchQuery.trim()) {
+      searchUsers()
+    } else {
+      setSearchResults([])
+    }
+  }, [searchQuery])
 
-    setLoading(true)
+  const loadRecentUsers = async () => {
     try {
-      // Get recent users (excluding current user)
-      const { data, error } = await supabase.auth.admin.listUsers()
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("*")
+        .neq("id", currentUserId)
+        .order("last_seen", { ascending: false })
+        .limit(20)
 
-      if (error) {
-        console.error("Error fetching users:", error)
-        return
-      }
-
-      const filteredUsers = data.users
-        .filter((user) => user.id !== currentUser.id)
-        .map((user) => ({
-          ...user,
-          user_metadata: {
-            display_name:
-              user.user_metadata?.display_name || user.user_metadata?.full_name || user.email?.split("@")[0] || "User",
-            full_name: user.user_metadata?.full_name,
-            avatar_url: user.user_metadata?.avatar_url,
-          },
-        }))
-        .sort(
-          (a, b) =>
-            new Date(b.last_sign_in_at || b.created_at).getTime() -
-            new Date(a.last_sign_in_at || a.created_at).getTime(),
-        )
-        .slice(0, 20) // Limit to 20 users
-
-      setUsers(filteredUsers as SupabaseUser[])
+      if (error) throw error
+      setRecentUsers(data || [])
     } catch (error) {
-      console.error("Error fetching discover users:", error)
-      toast({
-        title: "Error",
-        description: "Failed to fetch users",
-        variant: "destructive",
-        duration: 3000,
-      })
-    } finally {
-      setLoading(false)
+      console.error("Error loading recent users:", error)
     }
   }
 
-  const fetchUsers = async () => {
-    if (!currentUser) return
+  const searchUsers = async () => {
+    if (!searchQuery.trim()) return
 
-    setLoading(true)
+    setIsSearching(true)
     try {
-      const { data, error } = await supabase.auth.admin.listUsers()
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("*")
+        .neq("id", currentUserId)
+        .or(`name.ilike.%${searchQuery}%,email.ilike.%${searchQuery}%`)
+        .limit(10)
 
-      if (error) {
-        console.error("Error fetching users:", error)
-        return
-      }
-
-      let filteredUsers = data.users
-        .filter((user) => user.id !== currentUser.id)
-        .map((user) => ({
-          ...user,
-          user_metadata: {
-            display_name:
-              user.user_metadata?.display_name || user.user_metadata?.full_name || user.email?.split("@")[0] || "User",
-            full_name: user.user_metadata?.full_name,
-            avatar_url: user.user_metadata?.avatar_url,
-          },
-        }))
-
-      // Filter by search query if provided
-      if (searchQuery.trim()) {
-        const query = searchQuery.toLowerCase()
-        filteredUsers = filteredUsers.filter(
-          (user) =>
-            user.user_metadata?.display_name?.toLowerCase().includes(query) ||
-            user.user_metadata?.full_name?.toLowerCase().includes(query) ||
-            user.email?.toLowerCase().includes(query),
-        )
-      }
-
-      setUsers(filteredUsers.slice(0, 50) as SupabaseUser[]) // Limit to 50 results
+      if (error) throw error
+      setSearchResults(data || [])
     } catch (error) {
-      console.error("Error fetching users:", error)
-      toast({
-        title: "Error",
-        description: "Failed to fetch users",
-        variant: "destructive",
-        duration: 3000,
-      })
+      console.error("Error searching users:", error)
+      toast.error("Failed to search users")
     } finally {
-      setLoading(false)
+      setIsSearching(false)
     }
   }
 
-  const handleSelectUser = (user: SupabaseUser) => {
-    onSelectUser(user)
+  const handleStartChat = (user: User) => {
+    onStartChat(user)
     onClose()
+    setSearchQuery("")
+    setSearchResults([])
   }
 
-  const getTimeAgo = (dateString?: string) => {
-    if (!dateString) return "Unknown"
+  const formatLastSeen = (lastSeen: string | null) => {
+    if (!lastSeen) return "Never"
 
-    const date = new Date(dateString)
     const now = new Date()
-    const diffInHours = Math.floor((now.getTime() - date.getTime()) / (1000 * 60 * 60))
-
-    if (diffInHours < 1) return "Just now"
-    if (diffInHours < 24) return `${diffInHours}h ago`
-    if (diffInHours < 168) return `${Math.floor(diffInHours / 24)}d ago`
-    return `${Math.floor(diffInHours / 168)}w ago`
-  }
-
-  const isOnline = (lastSeen?: string) => {
-    if (!lastSeen) return false
     const lastSeenDate = new Date(lastSeen)
-    const now = new Date()
-    const diffInMinutes = (now.getTime() - lastSeenDate.getTime()) / (1000 * 60)
-    return diffInMinutes < 15 // Consider online if active within 15 minutes
+    const diffInMinutes = Math.floor((now.getTime() - lastSeenDate.getTime()) / (1000 * 60))
+
+    if (diffInMinutes < 1) return "Just now"
+    if (diffInMinutes < 60) return `${diffInMinutes}m ago`
+    if (diffInMinutes < 1440) return `${Math.floor(diffInMinutes / 60)}h ago`
+    return `${Math.floor(diffInMinutes / 1440)}d ago`
   }
+
+  const UserCard = ({ user }: { user: User }) => (
+    <div className="flex items-center justify-between p-3 rounded-lg border hover:bg-accent/50 transition-colors">
+      <div className="flex items-center space-x-3">
+        <div className="relative">
+          <Avatar className="h-10 w-10">
+            <AvatarImage src={user.avatar_url || "/placeholder.svg"} />
+            <AvatarFallback>{user.name?.charAt(0) || user.email.charAt(0)}</AvatarFallback>
+          </Avatar>
+          {user.is_online && (
+            <div className="absolute -bottom-1 -right-1 h-3 w-3 bg-green-500 border-2 border-background rounded-full" />
+          )}
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="font-medium truncate">{user.name || "Anonymous"}</p>
+          <p className="text-sm text-muted-foreground truncate">{user.email}</p>
+          <div className="flex items-center space-x-2 mt-1">
+            <Clock className="h-3 w-3 text-muted-foreground" />
+            <span className="text-xs text-muted-foreground">
+              {user.is_online ? "Online" : formatLastSeen(user.last_seen)}
+            </span>
+          </div>
+        </div>
+      </div>
+      <Button size="sm" onClick={() => handleStartChat(user)} className="shrink-0">
+        <MessageCircle className="h-4 w-4 mr-1" />
+        Chat
+      </Button>
+    </div>
+  )
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="bg-gray-800 border-gray-700 text-white max-w-2xl max-h-[80vh]">
+      <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <Users className="h-5 w-5 text-blue-400" />
-            Find People to Chat With
+          <DialogTitle className="flex items-center space-x-2">
+            <Users className="h-5 w-5" />
+            <span>Find Users</span>
           </DialogTitle>
         </DialogHeader>
 
-        {/* Tab Navigation */}
-        <Tabs
-          value={activeTab}
-          onValueChange={(value) => setActiveTab(value as "discover" | "search")}
-          className="w-full"
-        >
-          <TabsList className="grid w-full grid-cols-2 bg-gray-700">
-            <TabsTrigger value="discover" className="text-white data-[state=active]:bg-gray-600">
-              <Sparkles className="h-4 w-4 mr-2" />
-              Discover
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+          <TabsList className="grid w-full grid-cols-2">
+            <TabsTrigger value="discover" className="flex items-center space-x-2">
+              <Users className="h-4 w-4" />
+              <span>Discover</span>
             </TabsTrigger>
-            <TabsTrigger value="search" className="text-white data-[state=active]:bg-gray-600">
-              <Search className="h-4 w-4 mr-2" />
-              Search
+            <TabsTrigger value="search" className="flex items-center space-x-2">
+              <Search className="h-4 w-4" />
+              <span>Search</span>
             </TabsTrigger>
           </TabsList>
 
-          <TabsContent value="discover" className="space-y-4 max-h-96 overflow-y-auto">
-            <div className="space-y-2">
-              <h3 className="text-sm font-medium text-gray-300 flex items-center gap-2">
-                <Sparkles className="w-4 h-4 text-purple-400" />
-                Recently Active Users
-              </h3>
-              {loading ? (
-                <div className="flex items-center justify-center py-8">
-                  <Loader2 className="h-6 w-6 animate-spin text-gray-400" />
-                </div>
-              ) : users.length > 0 ? (
-                <div className="space-y-2">
-                  {users.map((user) => (
-                    <div
-                      key={user.id}
-                      className="flex items-center gap-3 p-3 rounded-lg bg-gray-700/30 hover:bg-gray-700/50 transition-colors"
-                    >
-                      <div className="relative">
-                        <Avatar className="h-10 w-10">
-                          <AvatarImage src={user.user_metadata?.avatar_url || "/placeholder.svg"} />
-                          <AvatarFallback className="bg-gradient-to-r from-gray-700 via-slate-600 to-red-800 text-white">
-                            {user.user_metadata?.display_name?.charAt(0)?.toUpperCase() || "U"}
-                          </AvatarFallback>
-                        </Avatar>
-                        {isOnline(user.last_sign_in_at) && (
-                          <div className="absolute -bottom-1 -right-1 w-3 h-3 bg-green-500 rounded-full border-2 border-gray-800"></div>
-                        )}
-                      </div>
-
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-1">
-                          <p className="font-medium text-white truncate">{user.user_metadata?.display_name}</p>
-                          {isOnline(user.last_sign_in_at) && (
-                            <Badge variant="secondary" className="bg-green-600/20 text-green-400 text-xs">
-                              Online
-                            </Badge>
-                          )}
-                        </div>
-                        <p className="text-sm text-gray-400 truncate">{user.email}</p>
-                        <p className="text-xs text-gray-500">
-                          {user.last_sign_in_at
-                            ? `Active ${getTimeAgo(user.last_sign_in_at)}`
-                            : `Joined ${getTimeAgo(user.created_at)}`}
-                        </p>
-                      </div>
-
-                      <Button
-                        onClick={() => handleSelectUser(user)}
-                        size="sm"
-                        className="bg-purple-600 hover:bg-purple-700"
-                      >
-                        <MessageCircle className="h-4 w-4 mr-2" />
-                        Chat
-                      </Button>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="text-center py-8 text-gray-400">
-                  <Users className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                  <p>No recently active users found</p>
-                </div>
-              )}
+          <TabsContent value="discover" className="space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="font-medium">Recently Active</h3>
+              <Badge variant="secondary">{recentUsers.length} users</Badge>
             </div>
+            <ScrollArea className="h-[300px]">
+              <div className="space-y-2">
+                {recentUsers.length > 0 ? (
+                  recentUsers.map((user) => <UserCard key={user.id} user={user} />)
+                ) : (
+                  <div className="text-center py-8 text-muted-foreground">
+                    <Users className="h-12 w-12 mx-auto mb-2 opacity-50" />
+                    <p>No users found</p>
+                  </div>
+                )}
+              </div>
+            </ScrollArea>
           </TabsContent>
 
           <TabsContent value="search" className="space-y-4">
             <div className="relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
                 placeholder="Search by name or email..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-10 bg-gray-700/50 border-gray-600 text-white placeholder-gray-400"
+                className="pl-10"
               />
             </div>
-
-            <div className="max-h-80 overflow-y-auto space-y-2">
-              {loading ? (
-                <div className="text-center py-8 text-gray-400">
-                  <Loader2 className="w-6 h-6 animate-spin mx-auto mb-4" />
-                  <p>Searching users...</p>
-                </div>
-              ) : users.length > 0 ? (
-                users.map((user) => (
-                  <div
-                    key={user.id}
-                    className="flex items-center gap-3 p-3 rounded-lg bg-gray-700/30 hover:bg-gray-700/50 transition-colors"
-                  >
-                    <Avatar className="h-10 w-10">
-                      <AvatarImage src={user.user_metadata?.avatar_url || "/placeholder.svg"} />
-                      <AvatarFallback className="bg-gradient-to-r from-gray-700 via-slate-600 to-red-800 text-white">
-                        {user.user_metadata?.display_name?.charAt(0)?.toUpperCase() || "U"}
-                      </AvatarFallback>
-                    </Avatar>
-                    <div className="flex-1 min-w-0">
-                      <p className="font-medium text-white truncate">{user.user_metadata?.display_name}</p>
-                      <p className="text-sm text-gray-400 truncate">{user.email}</p>
+            <ScrollArea className="h-[300px]">
+              <div className="space-y-2">
+                {searchQuery.trim() ? (
+                  isSearching ? (
+                    <div className="text-center py-8 text-muted-foreground">
+                      <div className="animate-spin h-8 w-8 border-2 border-primary border-t-transparent rounded-full mx-auto mb-2" />
+                      <p>Searching...</p>
                     </div>
-                    <Button
-                      onClick={() => handleSelectUser(user)}
-                      size="sm"
-                      className="bg-purple-600 hover:bg-purple-700"
-                    >
-                      <MessageCircle className="h-4 w-4 mr-2" />
-                      Chat
-                    </Button>
+                  ) : searchResults.length > 0 ? (
+                    searchResults.map((user) => <UserCard key={user.id} user={user} />)
+                  ) : (
+                    <div className="text-center py-8 text-muted-foreground">
+                      <Search className="h-12 w-12 mx-auto mb-2 opacity-50" />
+                      <p>No users found</p>
+                    </div>
+                  )
+                ) : (
+                  <div className="text-center py-8 text-muted-foreground">
+                    <Search className="h-12 w-12 mx-auto mb-2 opacity-50" />
+                    <p>Start typing to search users</p>
                   </div>
-                ))
-              ) : searchQuery ? (
-                <div className="text-center py-8 text-gray-400">
-                  <Search className="w-12 h-12 mx-auto mb-4 opacity-50" />
-                  <p>No users found matching "{searchQuery}"</p>
-                </div>
-              ) : (
-                <div className="text-center py-8 text-gray-400">
-                  <Search className="w-12 h-12 mx-auto mb-4 opacity-50" />
-                  <p>Start typing to search for users</p>
-                </div>
-              )}
-            </div>
+                )}
+              </div>
+            </ScrollArea>
           </TabsContent>
         </Tabs>
-
-        <div className="mt-4 text-center">
-          <p className="text-xs text-gray-500">
-            {activeTab === "discover"
-              ? "Discover new people in the community"
-              : "Search for specific users to start chatting"}
-          </p>
-        </div>
       </DialogContent>
     </Dialog>
   )
