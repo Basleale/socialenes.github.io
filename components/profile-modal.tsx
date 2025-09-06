@@ -1,85 +1,90 @@
 "use client"
 
-import type React from "react"
-
-import { useState } from "react"
+import { useState, useRef } from "react"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { useToast } from "@/hooks/use-toast"
-import { Camera, Loader2 } from 'lucide-react'
-
-interface User {
-  id: string
-  name: string
-  email: string
-  profilePicture?: string
-}
+import { Camera, Loader2, Save, X } from "lucide-react"
+import { supabase, type SupabaseUser } from "@/lib/supabase"
 
 interface ProfileModalProps {
   isOpen: boolean
   onClose: () => void
-  user: User
-  onUpdate: (user: User) => void
+  user: SupabaseUser
+  onUpdate: (user: SupabaseUser) => void
 }
 
 export function ProfileModal({ isOpen, onClose, user, onUpdate }: ProfileModalProps) {
   const [isLoading, setIsLoading] = useState(false)
-  const [formData, setFormData] = useState({
-    name: user.name,
-    email: user.email,
+  const [profileData, setProfileData] = useState({
+    displayName: user.user_metadata?.display_name || user.email?.split("@")[0] || "",
+    fullName: user.user_metadata?.full_name || "",
+    avatarUrl: user.user_metadata?.avatar_url || "",
   })
-  const [profilePicture, setProfilePicture] = useState<File | null>(null)
-  const [previewUrl, setPreviewUrl] = useState(user.profilePicture || "")
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const { toast } = useToast()
 
-  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (file) {
-      setProfilePicture(file)
-      const url = URL.createObjectURL(file)
-      setPreviewUrl(url)
+  const handleSave = async () => {
+    setIsLoading(true)
+    try {
+      const { data, error } = await supabase.auth.updateUser({
+        data: {
+          display_name: profileData.displayName,
+          full_name: profileData.fullName,
+          avatar_url: profileData.avatarUrl,
+        },
+      })
+
+      if (error) throw error
+
+      if (data.user) {
+        const updatedUser = data.user as SupabaseUser
+        onUpdate(updatedUser)
+        toast({
+          title: "Profile updated",
+          description: "Your profile has been updated successfully",
+        })
+        onClose()
+      }
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive",
+      })
+    } finally {
+      setIsLoading(false)
     }
   }
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
+  const handleAvatarUpload = async (file: File) => {
+    if (!file) return
+
     setIsLoading(true)
-
     try {
-      let profilePictureUrl = user.profilePicture
+      const fileExt = file.name.split(".").pop()
+      const fileName = `${user.id}-${Math.random()}.${fileExt}`
+      const filePath = `avatars/${fileName}`
 
-      // Upload profile picture if changed
-      if (profilePicture) {
-        const formDataUpload = new FormData()
-        formDataUpload.append("file", profilePicture)
-        formDataUpload.append("type", "profile")
+      const { error: uploadError } = await supabase.storage.from("avatars").upload(filePath, file)
 
-        const uploadResponse = await fetch("/api/upload", {
-          method: "POST",
-          body: formDataUpload,
-        })
+      if (uploadError) throw uploadError
 
-        if (uploadResponse.ok) {
-          const uploadResult = await uploadResponse.json()
-          profilePictureUrl = uploadResult.files[0]?.url
-        }
-      }
+      const { data } = supabase.storage.from("avatars").getPublicUrl(filePath)
 
-      const updatedUser = {
-        ...user,
-        ...formData,
-        profilePicture: profilePictureUrl,
-      }
+      setProfileData((prev) => ({ ...prev, avatarUrl: data.publicUrl }))
 
-      onUpdate(updatedUser)
-      onClose()
-    } catch (error) {
       toast({
-        title: "Update failed",
-        description: "There was an error updating your profile",
+        title: "Avatar uploaded",
+        description: "Your profile picture has been uploaded successfully",
+      })
+    } catch (error: any) {
+      toast({
+        title: "Upload failed",
+        description: error.message,
         variant: "destructive",
       })
     } finally {
@@ -89,85 +94,95 @@ export function ProfileModal({ isOpen, onClose, user, onUpdate }: ProfileModalPr
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="bg-gray-800 border-gray-700 text-white">
+      <DialogContent className="bg-gray-800 border-gray-700 text-white max-w-md">
         <DialogHeader>
-          <DialogTitle>Edit Profile</DialogTitle>
+          <DialogTitle className="flex items-center gap-2">Edit Profile</DialogTitle>
         </DialogHeader>
 
-        <form onSubmit={handleSubmit} className="space-y-6">
-          {/* Profile Picture */}
+        <div className="space-y-6">
+          {/* Avatar Section */}
           <div className="flex flex-col items-center space-y-4">
             <div className="relative">
               <Avatar className="h-24 w-24">
-                <AvatarImage src={previewUrl || "/placeholder.svg"} alt={user.name} />
+                <AvatarImage src={profileData.avatarUrl || "/placeholder.svg"} />
                 <AvatarFallback className="bg-gradient-to-r from-gray-700 via-slate-600 to-red-800 text-white text-2xl">
-                  {user.name.charAt(0).toUpperCase()}
+                  {profileData.displayName?.charAt(0)?.toUpperCase() || "U"}
                 </AvatarFallback>
               </Avatar>
-              <Label
-                htmlFor="profile-picture"
-                className="absolute bottom-0 right-0 bg-purple-600 hover:bg-purple-700 rounded-full p-2 cursor-pointer"
+              <Button
+                onClick={() => fileInputRef.current?.click()}
+                size="sm"
+                className="absolute -bottom-2 -right-2 rounded-full bg-purple-600 hover:bg-purple-700 p-2"
+                disabled={isLoading}
               >
-                <Camera className="h-4 w-4 text-white" />
-                <Input
-                  id="profile-picture"
-                  type="file"
-                  accept="image/*"
-                  onChange={handleImageChange}
-                  className="hidden"
-                />
-              </Label>
+                <Camera className="h-4 w-4" />
+              </Button>
             </div>
-            <p className="text-sm text-gray-400">Click the camera icon to change your profile picture</p>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              onChange={(e) => {
+                const file = e.target.files?.[0]
+                if (file) handleAvatarUpload(file)
+              }}
+              className="hidden"
+            />
           </div>
 
           {/* Form Fields */}
           <div className="space-y-4">
-            <div>
-              <Label htmlFor="name" className="text-gray-300">
+            <div className="space-y-2">
+              <Label htmlFor="displayName" className="text-gray-300">
+                Display Name
+              </Label>
+              <Input
+                id="displayName"
+                value={profileData.displayName}
+                onChange={(e) => setProfileData((prev) => ({ ...prev, displayName: e.target.value }))}
+                className="bg-gray-700/50 border-gray-600 text-white"
+                placeholder="Enter display name"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="fullName" className="text-gray-300">
                 Full Name
               </Label>
               <Input
-                id="name"
-                type="text"
-                value={formData.name}
-                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                id="fullName"
+                value={profileData.fullName}
+                onChange={(e) => setProfileData((prev) => ({ ...prev, fullName: e.target.value }))}
                 className="bg-gray-700/50 border-gray-600 text-white"
-                required
+                placeholder="Enter full name"
               />
             </div>
 
-            <div>
+            <div className="space-y-2">
               <Label htmlFor="email" className="text-gray-300">
                 Email
               </Label>
-              <Input
-                id="email"
-                type="email"
-                value={formData.email}
-                onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                className="bg-gray-700/50 border-gray-600 text-white"
-                required
-              />
+              <Input id="email" value={user.email} disabled className="bg-gray-700/30 border-gray-600 text-gray-400" />
             </div>
           </div>
 
-          {/* Actions */}
-          <div className="flex justify-end space-x-2">
+          {/* Action Buttons */}
+          <div className="flex gap-3 pt-4">
             <Button
-              type="button"
-              variant="outline"
               onClick={onClose}
-              className="border-gray-600 text-gray-300 hover:bg-gray-700 bg-transparent"
+              variant="outline"
+              className="flex-1 border-gray-600 text-gray-300 hover:bg-gray-700 bg-transparent"
+              disabled={isLoading}
             >
+              <X className="h-4 w-4 mr-2" />
               Cancel
             </Button>
-            <Button type="submit" disabled={isLoading} className="bg-purple-600 hover:bg-purple-700">
-              {isLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+            <Button onClick={handleSave} className="flex-1 bg-purple-600 hover:bg-purple-700" disabled={isLoading}>
+              {isLoading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Save className="h-4 w-4 mr-2" />}
               Save Changes
             </Button>
           </div>
-        </form>
+        </div>
       </DialogContent>
     </Dialog>
   )

@@ -31,12 +31,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Valid Receiver Name required" }, { status: 400 })
     }
 
-    // Upload audio to blob storage in a dedicated voice messages folder
+    // Upload audio to blob storage
     const timestamp = Date.now()
     const filename = `voice-private-${timestamp}-${Math.random().toString(36).substr(2, 9)}.webm`
-    const blob = await put(`voice-messages/private/${filename}`, audioFile, {
+    const blob = await put(filename, audioFile, {
       access: "public",
-      token: "vercel_blob_rw_5UFG312mpLZOjrgt_w4QIybQYmJk3MDGVFM0f5BDTSBXDVY",
     })
 
     // Create message with voice URL

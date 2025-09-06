@@ -1,7 +1,6 @@
 "use client"
 
 import type React from "react"
-
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -10,11 +9,14 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useToast } from "@/hooks/use-toast"
 import { Eye, EyeOff, Loader2 } from "lucide-react"
+import { supabase } from "@/lib/supabase"
+import { useRouter } from "next/navigation"
 
 export function AuthForm() {
   const [isLoading, setIsLoading] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
   const { toast } = useToast()
+  const router = useRouter()
 
   const [signUpData, setSignUpData] = useState({
     name: "",
@@ -32,32 +34,29 @@ export function AuthForm() {
     setIsLoading(true)
 
     try {
-      const response = await fetch("/api/auth/signup", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(signUpData),
+      const { data, error } = await supabase.auth.signUp({
+        email: signUpData.email,
+        password: signUpData.password,
+        options: {
+          data: {
+            full_name: signUpData.name,
+            display_name: signUpData.name,
+          },
+        },
       })
 
-      const data = await response.json()
+      if (error) throw error
 
-      if (response.ok) {
-        localStorage.setItem("currentUser", JSON.stringify(data.user))
+      if (data.user) {
         toast({
           title: "Account created!",
-          description: "Welcome to Eneskench Summit",
-        })
-        window.location.href = "/dashboard"
-      } else {
-        toast({
-          title: "Sign up failed",
-          description: data.error,
-          variant: "destructive",
+          description: "Please check your email to verify your account.",
         })
       }
-    } catch (error) {
+    } catch (error: any) {
       toast({
-        title: "Sign up failed",
-        description: "Something went wrong. Please try again.",
+        title: "Error",
+        description: error.message,
         variant: "destructive",
       })
     } finally {
@@ -70,32 +69,24 @@ export function AuthForm() {
     setIsLoading(true)
 
     try {
-      const response = await fetch("/api/auth/signin", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(signInData),
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: signInData.email,
+        password: signInData.password,
       })
 
-      const data = await response.json()
+      if (error) throw error
 
-      if (response.ok) {
-        localStorage.setItem("currentUser", JSON.stringify(data.user))
+      if (data.user) {
         toast({
           title: "Welcome back!",
-          description: "Successfully signed in",
+          description: "You have been signed in successfully.",
         })
-        window.location.href = "/dashboard"
-      } else {
-        toast({
-          title: "Sign in failed",
-          description: data.error,
-          variant: "destructive",
-        })
+        router.push("/dashboard")
       }
-    } catch (error) {
+    } catch (error: any) {
       toast({
-        title: "Sign in failed",
-        description: "Something went wrong. Please try again.",
+        title: "Error",
+        description: error.message,
         variant: "destructive",
       })
     } finally {
@@ -105,7 +96,7 @@ export function AuthForm() {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-gray-900 via-slate-800 to-red-950 p-4">
-      <Card className="w-full max-w-md bg-gray-800/50 border-gray-700">
+      <Card className="w-full max-w-md bg-black/40 border-gray-700">
         <CardHeader className="text-center">
           <CardTitle className="text-2xl font-bold text-white">Eneskench Summit</CardTitle>
           <CardDescription className="text-gray-300">
@@ -114,11 +105,11 @@ export function AuthForm() {
         </CardHeader>
         <CardContent>
           <Tabs defaultValue="signin" className="w-full">
-            <TabsList className="grid w-full grid-cols-2 bg-gray-700/50">
-              <TabsTrigger value="signin" className="text-gray-300 data-[state=active]:text-white">
+            <TabsList className="grid w-full grid-cols-2 bg-gray-800">
+              <TabsTrigger value="signin" className="text-white data-[state=active]:bg-gray-700">
                 Sign In
               </TabsTrigger>
-              <TabsTrigger value="signup" className="text-gray-300 data-[state=active]:text-white">
+              <TabsTrigger value="signup" className="text-white data-[state=active]:bg-gray-700">
                 Sign Up
               </TabsTrigger>
             </TabsList>
@@ -126,32 +117,32 @@ export function AuthForm() {
             <TabsContent value="signin">
               <form onSubmit={handleSignIn} className="space-y-4">
                 <div className="space-y-2">
-                  <Label htmlFor="signin-email" className="text-gray-300">
+                  <Label htmlFor="signin-email" className="text-white">
                     Email
                   </Label>
                   <Input
                     id="signin-email"
                     type="email"
-                    placeholder="Enter your email"
                     value={signInData.email}
                     onChange={(e) => setSignInData({ ...signInData, email: e.target.value })}
-                    className="bg-gray-700/50 border-gray-600 text-white placeholder-gray-400"
                     required
+                    className="bg-gray-800 border-gray-600 text-white"
+                    placeholder="Enter your email"
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="signin-password" className="text-gray-300">
+                  <Label htmlFor="signin-password" className="text-white">
                     Password
                   </Label>
                   <div className="relative">
                     <Input
                       id="signin-password"
                       type={showPassword ? "text" : "password"}
-                      placeholder="Enter your password"
                       value={signInData.password}
                       onChange={(e) => setSignInData({ ...signInData, password: e.target.value })}
-                      className="bg-gray-700/50 border-gray-600 text-white placeholder-gray-400 pr-10"
                       required
+                      className="bg-gray-800 border-gray-600 text-white pr-10"
+                      placeholder="Enter your password"
                     />
                     <Button
                       type="button"
@@ -170,7 +161,7 @@ export function AuthForm() {
                 </div>
                 <Button
                   type="submit"
-                  className="w-full bg-gradient-to-r from-gray-700 via-slate-600 to-red-800 hover:from-gray-600 hover:via-slate-500 hover:to-red-700 text-white"
+                  className="w-full bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700"
                   disabled={isLoading}
                 >
                   {isLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
@@ -182,46 +173,47 @@ export function AuthForm() {
             <TabsContent value="signup">
               <form onSubmit={handleSignUp} className="space-y-4">
                 <div className="space-y-2">
-                  <Label htmlFor="signup-name" className="text-gray-300">
+                  <Label htmlFor="signup-name" className="text-white">
                     Full Name
                   </Label>
                   <Input
                     id="signup-name"
                     type="text"
-                    placeholder="Enter your full name"
                     value={signUpData.name}
                     onChange={(e) => setSignUpData({ ...signUpData, name: e.target.value })}
-                    className="bg-gray-700/50 border-gray-600 text-white placeholder-gray-400"
                     required
+                    className="bg-gray-800 border-gray-600 text-white"
+                    placeholder="Enter your full name"
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="signup-email" className="text-gray-300">
+                  <Label htmlFor="signup-email" className="text-white">
                     Email
                   </Label>
                   <Input
                     id="signup-email"
                     type="email"
-                    placeholder="Enter your email"
                     value={signUpData.email}
                     onChange={(e) => setSignUpData({ ...signUpData, email: e.target.value })}
-                    className="bg-gray-700/50 border-gray-600 text-white placeholder-gray-400"
                     required
+                    className="bg-gray-800 border-gray-600 text-white"
+                    placeholder="Enter your email"
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="signup-password" className="text-gray-300">
+                  <Label htmlFor="signup-password" className="text-white">
                     Password
                   </Label>
                   <div className="relative">
                     <Input
                       id="signup-password"
                       type={showPassword ? "text" : "password"}
-                      placeholder="Create a password"
                       value={signUpData.password}
                       onChange={(e) => setSignUpData({ ...signUpData, password: e.target.value })}
-                      className="bg-gray-700/50 border-gray-600 text-white placeholder-gray-400 pr-10"
                       required
+                      minLength={6}
+                      className="bg-gray-800 border-gray-600 text-white pr-10"
+                      placeholder="Create a password (min 6 characters)"
                     />
                     <Button
                       type="button"
@@ -240,18 +232,18 @@ export function AuthForm() {
                 </div>
                 <Button
                   type="submit"
-                  className="w-full bg-gradient-to-r from-gray-700 via-slate-600 to-red-800 hover:from-gray-600 hover:via-slate-500 hover:to-red-700 text-white"
+                  className="w-full bg-gradient-to-r from-green-600 to-blue-600 hover:from-green-700 hover:to-blue-700"
                   disabled={isLoading}
                 >
                   {isLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-                  Sign Up
+                  Create Account
                 </Button>
               </form>
             </TabsContent>
           </Tabs>
 
           <div className="mt-6 text-center">
-            <p className="text-sm text-gray-400">Demo: demo@example.com / password</p>
+            <p className="text-sm text-gray-400">Create an account or sign in to get started</p>
           </div>
         </CardContent>
       </Card>

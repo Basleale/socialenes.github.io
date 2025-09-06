@@ -5,10 +5,10 @@ export async function GET() {
   try {
     console.log("Fetching media from Vercel Blob...")
 
-    // List blobs only from the "media/" directory
-    const { blobs } = await list({ prefix: "media/" })
+    // List all blobs from Vercel Blob storage
+    const { blobs } = await list()
 
-    console.log(`Found ${blobs.length} media blobs in storage`)
+    console.log(`Found ${blobs.length} blobs in storage`)
 
     // Transform blob data to our media format
     const media = blobs.map((blob) => {
@@ -82,14 +82,12 @@ export async function DELETE(request: Request) {
     const deletePromises = ids.map(async (blobUrl: string) => {
       try {
         console.log(`Deleting blob: ${blobUrl}`)
-        await del(blobUrl, {
-          token: "vercel_blob_rw_5UFG312mpLZOjrgt_w4QIybQYmJk3MDGVFM0f5BDTSBXDVY",
-        })
+        await del(blobUrl)
         console.log(`Successfully deleted blob: ${blobUrl}`)
         return { id: blobUrl, success: true }
       } catch (error) {
         console.error(`Failed to delete blob ${blobUrl}:`, error)
-        return { id: blobUrl, success: false, error: (error as Error).message }
+        return { id: blobUrl, success: false, error: error.message }
       }
     })
 
