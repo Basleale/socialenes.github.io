@@ -20,6 +20,20 @@ export const createServerClient = () => {
   return createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!)
 }
 
+// Types for Supabase User
+export interface SupabaseUser {
+  id: string
+  email?: string
+  user_metadata?: {
+    name?: string
+    display_name?: string
+    full_name?: string
+    avatar_url?: string
+  }
+  created_at: string
+  last_sign_in_at?: string
+}
+
 // Types for our database
 export interface User {
   id: string

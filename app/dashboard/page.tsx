@@ -57,6 +57,7 @@ export default function DashboardPage() {
   const [mediaLikes, setMediaLikes] = useState<{ [key: string]: number }>({})
   const [mediaComments, setMediaComments] = useState<{ [key: string]: number }>({})
   const [activeTab, setActiveTab] = useState("explore")
+  const [isLoading, setIsLoading] = useState(true)
 
   const { media, loading, uploadFiles, mutate } = useMedia()
   const { toast } = useToast()
@@ -66,36 +67,44 @@ export default function DashboardPage() {
   useEffect(() => {
     const interval = setInterval(() => {
       mutate()
-      updateMediaStats()
+      if (user) {
+        updateMediaStats()
+      }
     }, 2000)
 
     return () => clearInterval(interval)
-  }, [mutate])
+  }, [mutate, user])
 
   useEffect(() => {
     checkUser()
   }, [router])
 
   useEffect(() => {
-    if (media.length > 0) {
+    if (media.length > 0 && user) {
       updateMediaStats()
     }
-  }, [media])
+  }, [media, user])
 
   const checkUser = async () => {
     try {
+      setIsLoading(true)
       const {
         data: { session },
       } = await supabase.auth.getSession()
+
       if (session?.user) {
         setUser(session.user as SupabaseUser)
         console.log("Current user loaded:", session.user)
       } else {
         router.push("/")
+        return
       }
     } catch (error) {
       console.error("Error checking user:", error)
       router.push("/")
+      return
+    } finally {
+      setIsLoading(false)
     }
 
     // Listen for auth changes
@@ -113,7 +122,7 @@ export default function DashboardPage() {
   }
 
   const updateMediaStats = async () => {
-    if (!user) return
+    if (!user?.id) return
 
     const likesPromises = media.map(async (item) => {
       try {
@@ -259,7 +268,7 @@ export default function DashboardPage() {
   }
 
   const handleLike = async (mediaId: string) => {
-    if (!user) return
+    if (!user?.id) return
 
     const isLiked = likedMedia.has(mediaId)
     const action = isLiked ? "unlike" : "like"
@@ -271,7 +280,7 @@ export default function DashboardPage() {
         body: JSON.stringify({
           mediaId,
           userId: user.id,
-          userName: user.user_metadata?.display_name || user.email?.split("@")[0] || "User",
+          userName: user.user_metadata?.display_name || user.user_metadata?.name || user.email?.split("@")[0] || "User",
           action,
         }),
       })
@@ -325,13 +334,30 @@ export default function DashboardPage() {
 
   const filteredMedia = media.filter((item) => item.name.toLowerCase().includes(searchQuery.toLowerCase()))
 
-  if (!user) {
+  // Show loading state
+  if (isLoading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-gray-900 via-slate-800 to-red-950 flex items-center justify-center">
-        <div className="text-white text-xl">Loading...</div>
+        <div className="text-white text-xl flex items-center gap-2">
+          <Loader2 className="h-6 w-6 animate-spin" />
+          Loading...
+        </div>
       </div>
     )
   }
+
+  // Show error state if no user
+  if (!user) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-gray-900 via-slate-800 to-red-950 flex items-center justify-center">
+        <div className="text-white text-xl">Please sign in to continue</div>
+      </div>
+    )
+  }
+
+  const displayName =
+    user.user_metadata?.display_name || user.user_metadata?.name || user.email?.split("@")[0] || "User"
+  const avatarUrl = user.user_metadata?.avatar_url
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-slate-800 to-red-950">
@@ -373,14 +399,9 @@ export default function DashboardPage() {
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" className="relative h-10 w-10 rounded-full">
               <Avatar className="h-10 w-10">
-                <AvatarImage
-                  src={user.user_metadata?.avatar_url || "/placeholder.svg"}
-                  alt={user.user_metadata?.display_name || "User"}
-                />
+                <AvatarImage src={avatarUrl || "/placeholder.svg"} alt={displayName} />
                 <AvatarFallback className="bg-gradient-to-r from-gray-700 via-slate-600 to-red-800 text-white">
-                  {user.user_metadata?.display_name?.charAt(0)?.toUpperCase() ||
-                    user.email?.charAt(0)?.toUpperCase() ||
-                    "U"}
+                  {displayName.charAt(0).toUpperCase()}
                 </AvatarFallback>
               </Avatar>
             </Button>
@@ -388,9 +409,7 @@ export default function DashboardPage() {
           <DropdownMenuContent className="w-56 bg-gray-800 border-gray-700" align="end" forceMount>
             <div className="flex items-center justify-start gap-2 p-2">
               <div className="flex flex-col space-y-1 leading-none">
-                <p className="font-medium text-white">
-                  {user.user_metadata?.display_name || user.email?.split("@")[0] || "User"}
-                </p>
+                <p className="font-medium text-white">{displayName}</p>
                 <p className="w-[200px] truncate text-sm text-gray-400">{user.email}</p>
               </div>
             </div>
@@ -531,12 +550,12 @@ export default function DashboardPage() {
                       {/* Uploader Info */}
                       <div className="flex items-center gap-2 mb-3">
                         <Avatar className="h-6 w-6">
-                          <AvatarImage src={user.user_metadata?.avatar_url || "/placeholder.svg"} />
+                          <AvatarImage src={avatarUrl || "/placeholder.svg"} />
                           <AvatarFallback className="bg-gradient-to-r from-gray-700 via-slate-600 to-red-800 text-white text-xs">
-                            {mediaItem.uploadedBy?.charAt(0)?.toUpperCase() || "U"}
+                            {mediaItem.uploadedBy?.charAt(0)?.toUpperCase() || displayName.charAt(0).toUpperCase()}
                           </AvatarFallback>
                         </Avatar>
-                        <span className="text-sm text-gray-300">{mediaItem.uploadedBy || "Unknown"}</span>
+                        <span className="text-sm text-gray-300">{mediaItem.uploadedBy || displayName}</span>
                       </div>
 
                       {/* Action Buttons */}
@@ -680,7 +699,7 @@ export default function DashboardPage() {
             <div className="mt-4 text-center">
               <h3 className="text-white text-xl font-medium">{expandedMedia.name}</h3>
               <p className="text-gray-400 text-sm mt-1">
-                by {expandedMedia.uploadedBy} • {new Date(expandedMedia.uploadedAt).toLocaleDateString()}
+                by {expandedMedia.uploadedBy || displayName} • {new Date(expandedMedia.uploadedAt).toLocaleDateString()}
               </p>
             </div>
           </div>
@@ -695,15 +714,17 @@ export default function DashboardPage() {
         onUpdate={handleProfileUpdate}
       />
 
-      <ChatModal
-        isOpen={isChatModalOpen}
-        onClose={() => {
-          setIsChatModalOpen(false)
-          setSelectedChatUser(null)
-        }}
-        user={selectedChatUser}
-        currentUser={user}
-      />
+      {selectedChatUser && (
+        <ChatModal
+          isOpen={isChatModalOpen}
+          onClose={() => {
+            setIsChatModalOpen(false)
+            setSelectedChatUser(null)
+          }}
+          user={selectedChatUser}
+          currentUser={user}
+        />
+      )}
 
       <PublicChatModal isOpen={isPublicChatOpen} onClose={() => setIsPublicChatOpen(false)} currentUser={user} />
 
@@ -714,16 +735,18 @@ export default function DashboardPage() {
         currentUser={user}
       />
 
-      <CommentsModal
-        isOpen={isCommentsModalOpen}
-        onClose={() => {
-          setIsCommentsModalOpen(false)
-          setSelectedMediaForComments(null)
-        }}
-        mediaItem={selectedMediaForComments}
-        currentUser={user}
-        onCommentAdded={() => updateMediaStats()}
-      />
+      {selectedMediaForComments && (
+        <CommentsModal
+          isOpen={isCommentsModalOpen}
+          onClose={() => {
+            setIsCommentsModalOpen(false)
+            setSelectedMediaForComments(null)
+          }}
+          mediaItem={selectedMediaForComments}
+          currentUser={user}
+          onCommentAdded={() => updateMediaStats()}
+        />
+      )}
     </div>
   )
 }

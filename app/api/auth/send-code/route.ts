@@ -1,5 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { verificationStore } from "@/lib/verification-store"
+import { generateVerificationCode, storeVerificationCode } from "@/lib/verification-store"
 
 export async function POST(request: NextRequest) {
   try {
@@ -13,20 +13,17 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Password must be at least 6 characters" }, { status: 400 })
     }
 
-    // Generate and store verification code
-    const code = verificationStore.storeCode(email, name, password)
+    const code = generateVerificationCode()
+    storeVerificationCode(email, code, name, password)
 
-    // In a real app, you'd send this via email service like Resend, SendGrid, etc.
-    // For demo purposes, we'll just log it and return it
+    // In production, send email here
     console.log(`Verification code for ${email}: ${code}`)
 
-    // Simulate sending email
-    await new Promise((resolve) => setTimeout(resolve, 1000))
-
+    // For demo purposes, return the code (remove in production)
     return NextResponse.json({
-      message: "Verification code sent to your email",
-      // Remove this in production - only for demo
-      demoCode: code,
+      success: true,
+      message: "Verification code sent",
+      demoCode: code, // Remove this in production
     })
   } catch (error) {
     console.error("Error sending verification code:", error)
